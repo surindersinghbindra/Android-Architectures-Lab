@@ -111,29 +111,122 @@ Each implementation can be found in the `com.ekobits.demoapp.presentation` packa
 
 During the development of the User Profile feature, several critical "Senior Developer" challenges were encountered and solved. These serve as a reference for best practices in professional Android development.
 
-### 1. Reactive Data Flow & Room (The "Phantom Null" Issue)
+### 1. Clean Architecture Responsibilities
+*   **Repository vs. UseCase Mapping**:
+    *   **Repository**: Responsible for **Data → Domain** mapping (e.g., `UserDto` to `User`). This ensures the Domain layer is completely decoupled from framework-specific models.
+    *   **UseCase**: Responsible for **Business Logic**.
+
+#### Examples of Use Cases in Action:
+1.  **Business Logic: "The Member Status Rule"**: If a user's email ends in `@ekobits.com`, they are an "Internal Member." The Use Case calculates this before passing the data to the ViewModel.
+    ```kotlin
+    class GetEnhancedUserUseCase(private val repository: UserRepository) {
+        operator fun invoke(userId: String): Flow<EnhancedUser?> {
+            return repository.getUserStream(userId).map { user ->
+                user?.let {
+                    EnhancedUser(it, if (it.email.endsWith("@ekobits.com")) "Admin" else "Guest")
+                }
+            }
+        }
+    }
+    ```
+2.  **Orchestration: Combining Two Sources**: A Use Case can combine a `User` profile from one repository with `OrderHistory` from another to create a single "FullProfile" domain model.
+    ```kotlin
+    class GetFullProfileUseCase(private val userRepo: UserRepository, private val orderRepo: OrderRepository) {
+        operator fun invoke(userId: String): Flow<FullProfile> {
+            return combine(userRepo.getUserStream(userId), orderRepo.getOrders(userId)) { user, orders ->
+                FullProfile(user, orders)
+            }
+        }
+    }
+    ```
+3.  **Validation & Guardrails**: Before refreshing a user, a Use Case can check if the phone number is valid (e.g., 10 digits).
+    ```kotlin
+    class RefreshUserUseCase(private val repository: UserRepository) {
+        suspend operator fun invoke(phoneNumber: String): Result<Unit> {
+            if (phoneNumber.length < 10) return Result.failure(Exception("Invalid Phone"))
+            return repository.refreshUser(phoneNumber)
+        }
+    }
+    ```
+
+#### 💡 Summary: Why bother with Use Cases?
+*   **Reusability**: If you add a "Settings" screen that also needs to know if the user is an "Admin," you just reuse `GetEnhancedUserUseCase`. You don't rewrite the `if` statement.
+*   **Testing**: You can write a Unit Test for a Use Case that checks 10 different email formats without ever launching an emulator or a Database.
+*   **Thin ViewModels**: Your ViewModel stays focused on UI State (loading, success, error) and doesn't get cluttered with calculation logic.
+
+*   **Main-Safety**: Even though Retrofit and Room handle dispatchers internally, a Repository should explicitly use `withContext(Dispatchers.IO)` to guarantee that every operation is safe to call from the Main thread.
+
+### 2. Handling Android Framework Components
+To understand how complex components fit, use the **Architectural Mental Model**:
+*   **Domain is the "Brain"** (Pure Kotlin): It makes decisions but doesn't know how to move.
+*   **Data is the "Body"** (Sensors/Storage/Network): It handles the physical world (BLE, Retrofit, Room, MMKV, gRPC, WebSockets).
+*   **Presentation is the "Face"** (UI): It shows what the brain is thinking.
+
+When you add Android-specific components, here is where they belong in Clean Architecture:
+
+#### 1. Bluetooth & BLE (Data Layer)
+Bluetooth is just another "Data Source," similar to an API or a Database.
+*   **Domain**: You define an interface like `BluetoothRepository` with methods like `scanForDevices()` or `connect()`.
+*   **Data**: You implement this interface using the Android Bluetooth Stack. All the "messy" BLE callbacks and GATT logic stay here.
+*   **Why**: If Android releases a new Bluetooth API tomorrow, you only change the Data layer. Your Use Cases and UI stay exactly the same.
+
+#### 2. Permissions (Presentation & Data)
+Permissions are tricky because they bridge the UI and the System.
+*   **Presentation (Activity/ViewModel)**: This is where you **request** the permission (showing the system dialog) because you need an Activity context.
+*   **Data (PermissionProvider)**: You can create a `PermissionChecker` implementation in the Data layer that simply returns a `Boolean` (`isPermissionGranted`).
+*   **Domain**: You define a `CheckPermissionUseCase` that your app uses to decide if it should even try to start the Bluetooth scan.
+
+#### 3. Foreground Services (Data/Infrastructure Layer)
+A Service is an Android Framework component.
+*   **Placement**: It belongs in the Data Layer (or a dedicated Infrastructure module).
+*   **Logic**: The Service itself should be "dumb." It shouldn't contain business logic. Instead, the Service should inject and call Use Cases.
+*   **Example**: A Music Player Service receives a "Play" command. It calls `PlayMusicUseCase`. The Use Case handles the logic, and the Service just handles the Android notification and the media player lifecycle.
+
+#### 4. Broadcast Receivers (Data Layer)
+Broadcast Receivers are "Events" from the outside world.
+*   **Placement**: Data Layer.
+*   **Flow**: The Receiver listens for a system event (like `ConnectivityChanged` or `SmsReceived`). It then pushes that data into a `Flow` or `Channel` defined in a Repository.
+*   **Example**: A `SmsRepository` implementation has a Broadcast Receiver inside it. When an SMS arrives, the repository emits that SMS through a `Flow<Sms>` which the Domain (Use Case) is collecting.
+
+#### 📁 Revised Folder Structure for Complex Apps
+```text
+app (Presentation)
+ ├── viewmodels/
+ ├── ui/ (Composables)
+ └── activities/ (Permission Request Logic)
+
+domain (Pure Kotlin)
+ ├── model/ (User, Device, ScanResult)
+ ├── repository/ (UserRepository, BluetoothRepository)
+ └── usecase/ (ConnectToDeviceUseCase, GetUserUseCase)
+
+data (Android Framework Heavy)
+ ├── remote/ (Retrofit)
+ ├── local/ (Room)
+ ├── bluetooth/ 
+ │    ├── BleScannerImpl.kt (Handles BLE logic)
+ │    └── BluetoothRepositoryImpl.kt
+ ├── services/ 
+ │    └── BackgroundSyncService.kt (Calls UseCases)
+ └── receivers/
+      └── BootReceiver.kt
+```
+
+> [!IMPORTANT]
+> **Key Takeaway for an Interview:**
+> If you are asked where a "Service" goes, the senior answer is:
+> *"The Service is an Android entry point, much like an Activity. It belongs in the Framework/Data layer. However, it should stay logic-free and simply delegate work to the Domain Layer (Use Cases). This ensures that even background work follows our business rules."*
+
+### 3. Advanced Debugging in Android Studio
+*   **Screen Recomposition**: Use **Layout Inspector > Show Recomposition Counts** to identify performance bottlenecks in Compose.
+*   **Reactive Stream Probes**: When debugging fast-moving Flows, use a "History Logger" (recording emissions in a list) or a "Coroutine Brake" (`delay(100)`) to visualize the exact sequence of state changes without the debugger merging values.
+
+### 4. Reactive Data Flow & Room (The "Phantom Null" Issue)
 *   **The Problem**: In an Offline-First setup, we observed that the UI would briefly show a "User Not Found" error even when the data was present.
 *   **The Cause**: Room's `@Insert(REPLACE)` strategy is actually a `DELETE` followed by an `INSERT`. During the microsecond between these operations, Room's `InvalidationTracker` triggers a `null` emission to the Flow.
 *   **The Solution**: 
     1.  Use `.distinctUntilChanged()` in the Repository to filter out redundant state updates.
     2.  Update the UI State Machine (ViewModel) to treat a `null` from the database as a "Transient Loading" state rather than a permanent error, until the network refresh confirms a failure.
-
-### 2. Clean Architecture Responsibilities
-*   **Repository vs. UseCase Mapping**:
-    *   **Repository**: Responsible for **Data → Domain** mapping (e.g., `UserDto` to `User`). This ensures the Domain layer is completely decoupled from framework-specific models.
-    *   **UseCase**: Responsible for **Business Logic** (e.g., calculating member status or combining multiple data sources).
-*   **Main-Safety**: Even though Retrofit and Room handle dispatchers internally, a Repository should explicitly use `withContext(Dispatchers.IO)` to guarantee that every operation is safe to call from the Main thread.
-
-### 3. Handling Android Framework Components
-In a clean architecture, heavy Android components belong in the **Data/Framework Layer** and are accessed via **Interfaces** in the Domain layer:
-*   **Bluetooth/BLE**: Implement a `BluetoothRepository` in the Data layer.
-*   **Permissions**: Activity handles the request; a `PermissionProvider` in the Data layer handles the status check.
-*   **Foreground Services**: Reside in the Data/Framework layer but delegate all actual logic to **UseCases**.
-*   **Broadcast Receivers**: Act as external event triggers that feed data into Repositories.
-
-### 4. Advanced Debugging in Android Studio
-*   **Screen Recomposition**: Use **Layout Inspector > Show Recomposition Counts** to identify performance bottlenecks in Compose.
-*   **Reactive Stream Probes**: When debugging fast-moving Flows, use a "History Logger" (recording emissions in a list) or a "Coroutine Brake" (`delay(100)`) to visualize the exact sequence of state changes without the debugger merging values.
 
 ---
 
