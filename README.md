@@ -1,4 +1,4 @@
-# DemoApp - Modern Android Architecture & Learning Lab
+# Android Architectures Lab - Multi-Pattern Implementation Explorer
 
 This project demonstrates a comprehensive implementation of various Android Architectural patterns (MVC, MVP, MVVM, MVI, VIPER) using Jetpack Compose, Room, Retrofit, and Hilt.
 
