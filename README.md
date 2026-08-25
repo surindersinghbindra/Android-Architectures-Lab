@@ -3,7 +3,7 @@
 This project demonstrates a comprehensive implementation of various Android Architectural patterns (MVC, MVP, MVVM, MVI, VIPER) using Jetpack Compose, Room, Retrofit, and Hilt.
 
 ## 📚 Architectural Overview
-For a detailed comparison of the implemented patterns, please see [README_ARCHITECTURES.md](file:///Users/surindersingh/AndroidStudioProjects/DemoApp/README_ARCHITECTURES.md).
+For a detailed comparison of the implemented patterns, please see [README_ARCHITECTURES.md](README_ARCHITECTURES.md).
 
 ---
 

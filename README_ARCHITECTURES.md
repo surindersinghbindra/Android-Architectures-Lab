@@ -2,7 +2,63 @@
 
 This repository demonstrates the same "User Profile" feature implemented using five different architectural patterns. This serves as a guide for understanding how data flow, state management, and separation of concerns vary across patterns.
 
+---
+
+## 🧠 Architectural Mental Model
+
+To understand these architectures, we must first look at the "Mental Model" that underpins the entire project. We use a **Clean Architecture** core that remains unchanged, while only the "Face" (Presentation Layer) of the app changes for each pattern.
+
+### 1. The Strategy (The Core)
+The goal of this lab is to show that **Business Logic** is independent of **UI Patterns**. We use a shared **Domain Layer** and **Data Layer** for every implementation. This means the rules for *how we get a user* never change, only *how we show it* changes.
+
+#### The Plan:
+1. **MVC (Model-View-Controller)**: The "Classic" Android way. The Activity/Fragment acts as the Controller.
+2. **MVP (Model-View-Presenter)**: Separation via an Interface. The Presenter handles logic and tells the View exactly what to do.
+3. **MVVM (Model-View-ViewModel)**: Our current implementation. Reactive data flow using `StateFlow`.
+4. **MVI (Model-View-Intent)**: Unidirectional Data Flow (UDF). "Intents" (actions) are sent to a reducer to produce a new "State".
+5. **VIPER**: A highly modular approach (View, Interactor, Presenter, Entity, Router).
+
+
+### 2. Shared Domain & Data Layers (The Foundation)
+Regardless of whether we use MVC or VIPER, these layers are the "Source of Truth":
+*   **Domain Layer**: Contains `UseCases` (The "What"). It defines the business actions like "Observe User" or "Refresh Profile". It has NO knowledge of Android, Retrofit, or Room.
+*   **Data Layer**: Contains `Repositories` (The "How"). It handles the complexity of switching between the Network (Retrofit) and the Local Cache (Room).
+
+### 3. Directory Structure
+We organized the presentation layer into specific packages to make comparisons easy:
+
+```text
+com.ekobits.demoapp.presentation/
+├── mvc/    # Tight coupling, Logic in UI
+├── mvp/    # Interface-based decoupling
+├── mvvm/   # Reactive, State-driven (Recommended)
+├── mvi/    # Unidirectional, Action -> State
+└── viper/  # Modular, Router-driven
+```
+
+### 4. Summary of Implementations
+By looking at the same "User Profile" screen across these folders, you can observe how the **Responsibility** shifts:
+*   In **MVC**, the UI is the "Boss".
+*   In **MVP**, the Presenter is a "Micromanager" (telling the UI exactly what to do).
+*   In **MVVM**, the ViewModel is a "Radio Station" (broadcasting state for the UI to tune into).
+*   In **MVI**, the system is a "Factory Line" (Actions go in, States come out).
+*   In **VIPER**, the system is an "Office Department" (Everyone has a very specific, narrow job).
+
+#### Summary of Implementations
+
+| Pattern | Location | Key Characteristic |
+| :--- | :--- | :--- |
+| **MVC** | `presentation.mvc` | The simplest. UI and logic are tightly coupled in the Composable/Activity. |
+| **MVP** | `presentation.mvp` | Decoupled via an interface. The Presenter tells the View exactly what to display. |
+| **MVVM** | `presentation.mvvm` | **Recommended**. Reactive and lifecycle-aware. Uses `StateFlow` to observe changes. |
+| **MVI** | `presentation.mvi` | Unidirectional Data Flow. Best for complex state management and predictability. |
+| **VIPER** | `presentation.viper` | Most modular. High separation of concerns, including navigation (Router) and logic (Interactor). |
+
+
+---
+
 ## Architectures Implemented
+
 
 ### 1. MVC (Model-View-Controller)
 - **Concept:** The Controller handles logic and updates the View directly. In modern Compose, the "Controller" logic is often embedded in the Composable or a simple state holder.
